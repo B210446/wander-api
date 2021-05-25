@@ -7,23 +7,19 @@ ma = Marshmallow()
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(50))
-    password = db.Column(db.String(80))
     display_name = db.Column(db.String(150))
     review = db.relationship('Feedback', backref='user_detail')
-
-    def __init__(self, username, password, display_name):
-        self.username = username
-        self.password = password
-        self.display_name = display_name
 
 class Places(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), unique=True)
-    location = db.Column(db.String(255))
+    location = db.Column(db.String(100))
+    category = db.Column(db.String(100))
     lat = db.Column(db.Float)
-    long = db.Column(db.Float)
+    lng = db.Column(db.Float)
     description = db.Column(db.String(255))
-    image_path = db.Column(db.String(255), unique=True)
+    rating = db.Column(db.Float)
+    external_urls = db.Column(db.String(255))
     review = db.relationship('Feedback', backref='place_detail')
 
 class Image(db.Model):
@@ -71,7 +67,7 @@ class WishlistSchema(ma.Schema):
     place_detail = ma.Nested(PlacesDetail, only=("id", "name", "image_path"))
     links = ma.Hyperlinks(
         {
-            'next': ma.URLFor('place', values=dict(id="<id>"))
+            'next': ma.URLFor('place', values=dict(id="<place_id>"))
         }
     )
 
@@ -81,7 +77,7 @@ class ImageSchema(ma.Schema):
 
 class PlacesSchema(ma.Schema):
     class Meta:
-        fields = ('id', 'name', 'location', 'lat', 'long', 'description', 'image_path', 'image_url', 'reviews', 'links')
+        fields = ('id', 'name', 'location', 'lat', 'lng', 'description', 'image_path', 'image_url', 'reviews', 'links')
     
     image_url = ma.Nested(ImageSchema, many=True, only=("image_path", "content_description"))
     reviews = ma.Nested(FeedbackSchema, many=True, exclude=['place_id', 'user_id',])
