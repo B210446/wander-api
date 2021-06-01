@@ -7,27 +7,26 @@ ma = Marshmallow()
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(50))
-    display_name = db.Column(db.String(150))
     review = db.relationship('Feedback', backref='user_detail')
 
 class Places(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), unique=True)
     location = db.Column(db.String(100))
-    category = db.Column(db.String(100))
-    lat = db.Column(db.Float)
-    lng = db.Column(db.Float)
-    description = db.Column(db.String(255))
+    category = db.Column(db.String(50))
+    latt = db.Column(db.Float)
+    long = db.Column(db.Float)
+    description = db.Column(db.String(1000))
     rating = db.Column(db.Float)
-    external_urls = db.Column(db.String(255))
+    open_link = db.Column(db.String(255))
     review = db.relationship('Feedback', backref='place_detail')
 
 class Image(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     place_id = db.Column(db.Integer, db.ForeignKey('places.id'))
-    image_path = db.Column(db.String(255), unique=True)
+    url = db.Column(db.String(500), unique=True)
     content_description = db.Column(db.String(255))
-    place_name = db.relationship('Places', backref='image_url')
+    place_name = db.relationship('Places', backref='image_path')
 
 class Feedback(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -36,7 +35,6 @@ class Feedback(db.Model):
     rating = db.Column(db.Float)
     desc = db.Column(db.String(255))
     date = db.Column(db.Date)
-    name = db.relationship('Places', backref='reviews')
     user = db.relationship('User', backref='reviewer')
 
 class UserSchema(ma.Schema):
@@ -51,38 +49,37 @@ class Wishlist(db.Model):
 
 class PlacesDetail(ma.Schema):
     class Meta:
-        fields = ('id', 'name', 'location', 'lat', 'long', 'description', 'image_path', 'links')
+        fields = ('id', 'name', 'location', 'lat', 'long', 'description')
 
 class FeedbackSchema(ma.Schema):
     class Meta:
         fields = ('id', 'user_id', 'place_id', 'rating', 'desc', 'date', 'place_detail', 'user_detail')
     
     place_detail = ma.Nested(PlacesDetail, only=("id", "name"))
-    user_detail = ma.Nested(UserSchema)
+    user_detail = ma.Nested(UserSchema, exclude=['id'])
         
-class WishlistSchema(ma.Schema):
-    class Meta:
-        fields = ('id', 'user_id', 'place_id', 'place_detail', 'links')
-    
-    place_detail = ma.Nested(PlacesDetail, only=("id", "name", "image_path"))
-    links = ma.Hyperlinks(
-        {
-            'next': ma.URLFor('place', values=dict(id="<place_id>"))
-        }
-    )
-
 class ImageSchema(ma.Schema):
     class Meta:
-        fields = ('id', 'place_id', 'image_path', 'content_description')
+        fields = ('id', 'place_id', 'url', 'content_description')
 
 class PlacesSchema(ma.Schema):
     class Meta:
-        fields = ('id', 'name', 'location', 'lat', 'lng', 'description', 'image_path', 'image_url', 'reviews', 'links')
+        fields = ('id', 'name', 'location', 'lat', 'lng', 'description', 'external_urls', 'rating', 'image_path', 'links')
     
-    image_url = ma.Nested(ImageSchema, many=True, only=("image_path", "content_description"))
-    reviews = ma.Nested(FeedbackSchema, many=True, exclude=['place_id', 'user_id',])
+    image_path = ma.Nested(ImageSchema, many=True, only=("url", "content_description"))
     links = ma.Hyperlinks(
         {
             'next': ma.URLFor('place', values=dict(id="<id>"))
+        }
+    )
+
+class WishlistSchema(ma.Schema):
+    class Meta:
+        fields = ('id', 'user_id', 'place_id', 'place_detail', 'links')
+        
+    place_detail = ma.Nested(PlacesSchema, only=("id", "name", "image_path"))
+    links = ma.Hyperlinks(
+        {
+            'next': ma.URLFor('place', values=dict(id="<place_id>"))
         }
     )
