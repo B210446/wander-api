@@ -64,22 +64,22 @@ class ImageSchema(ma.Schema):
 
 class PlacesSchema(ma.Schema):
     class Meta:
-        fields = ('id', 'name', 'location', 'lat', 'lng', 'description', 'external_urls', 'rating', 'image_path', 'links')
+        fields = ('id', 'name', 'location', 'lat', 'lng', 'description', 'external_urls', 'rating', 'image_path', 'link')
     
     image_path = ma.Nested(ImageSchema, many=True, only=("url", "content_description"))
-    links = ma.Hyperlinks(
+    link = ma.Hyperlinks(
         {
-            'next': ma.URLFor('place', values=dict(id="<id>"))
+            'self': ma.URLFor('place', values=dict(id="<id>"))
         }
     )
 
 class WishlistSchema(ma.Schema):
     class Meta:
-        fields = ('id', 'user_id', 'place_id', 'place_detail', 'links')
+        fields = ('id', 'user_id', 'place_id', 'place_detail', 'link')
         
     place_detail = ma.Nested(PlacesSchema, only=("id", "name", "image_path"))
-    links = ma.Hyperlinks(
+    link = ma.Hyperlinks(
         {
-            'next': ma.URLFor('place', values=dict(id="<place_id>"))
+            'self': ma.URLFor('place', values=dict(id="<place_id>"))
         }
     )
