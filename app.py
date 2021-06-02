@@ -56,20 +56,12 @@ def create_user():
         'key' : token.decode('UTF-8')
     })
 
-@app.route('/api/v1/search', methods=['GET'])
+@app.route('/api/v1/search', methods=['GET', 'POST'])
 def search():
-    page = request.args.get("page")
-    image = request.files["images"] 
-
-    if page is None:
-        page = 1
-
-    next = int(page)+1
-    prev = int(page)-1
-
     home_schema = PlacesSchema(many=True, only=("id", "name", 'link'))
+    if request.method == 'POST':
+        image = request.files["images"] 
 
-    if image is not None:
         basepath = os.path.dirname(__file__)
         basepath = os.path.dirname(__file__)
         file_path = os.path.join(basepath, 'uploads', secure_filename(image.filename))
@@ -85,13 +77,20 @@ def search():
 
         result = Places.query.filter(Places.name.ilike(class_names[np.argmax(score)])).paginate(per_page=15, page=int(page))
         response = home_schema.dump(result)
-
     else:
         query = request.args.get('q')
         search = "%{}%".format(query)
         result = Places.query.filter(Places.name.ilike(search)).paginate(per_page=15, page=int(page))
         response = home_schema.dump(result)
 
+    page = request.args.get("page")
+
+    if page is None:
+        page = 1
+
+    next = int(page)+1
+    prev = int(page)-1
+    
     pagination = {}
     pagination['self'] = '/api/v1/home?page=' + str(page)
     pagination['next'] = '/api/v1/home?page=' + str(next)
