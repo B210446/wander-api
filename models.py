@@ -49,7 +49,7 @@ class Wishlist(db.Model):
 
 class PlacesDetail(ma.Schema):
     class Meta:
-        fields = ('id', 'name', 'location', 'lat', 'long', 'description')
+        fields = ('id', 'name', 'location', 'lat', 'lng', 'description', 'open_link', 'rating')
 
 class FeedbackSchema(ma.Schema):
     class Meta:
@@ -64,7 +64,7 @@ class ImageSchema(ma.Schema):
 
 class PlacesSchema(ma.Schema):
     class Meta:
-        fields = ('id', 'name', 'location', 'lat', 'lng', 'description', 'external_urls', 'rating', 'image_path', 'link')
+        fields = ('id', 'name', 'location', 'lat', 'lng', 'description', 'open_link', 'rating', 'image_path', 'link')
     
     image_path = ma.Nested(ImageSchema, many=True, only=("url", "content_description"))
     link = ma.Hyperlinks(

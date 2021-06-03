@@ -11,14 +11,14 @@ from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 
-ENV = 'prod'
+ENV = 'dev'
 
 if ENV == 'dev':
     app.debug = True
     app.config['SQLALCHEMY_DATABASE_URI'] = '[LOCAL DATABASE URL]'
 else:
     app.debug = False
-    app.config['SQLALCHEMY_DATABASE_URI'] = '[PRODUCTION DATABASE URL]'
+    app.config['SQLALCHEMY_DATABASE_URI'] = '[REMOTE DATABASE URL]'
 
 app.config['SECRET_KEY'] = '[SECRET KEY]'
 app.config['JSON_SORT_KEYS'] = False
@@ -30,7 +30,7 @@ ma.init_app(app)
 # with app.app_context():
 #     db.create_all()
 
-model_path = "[MODEL PATH]"
+model_path = "[ML SAVED MODEL PATH]"
 model = tf.keras.models.load_model(model_path)
 class_names = ['Allianz Ecopark', 'Ancol', 'Galangan Kapal Voc', 'Hutan Kota Srengseng', 'Hutan Kota Tanah Tingal', 'Jembatan Gantung Kota Intan', 'Jimbaran Outdoor Lounge', 'Kepulauan Seribu', 'Monumen Nasional', 'Museum Bahari', 'Museum Bank Indonesia', 'Museum Bank Mandiri', 'Museum Fatahillah', 'Museum Joang 45', 'Museum Nasional', 'Museum Naskah Proklamasi', 'Museum Satria Mandala', 'Museum Seni Rupa Dan Keramik', 'Museum Taman Prasasti', 'Museum Tekstil', 'Museum Tengah Kebun', 'Museum Wayang', 'Pelabuhan Sunda Kelapa', 'Setu Babakan', 'Studio Alam Tvri', 'Syahbandar Tower', 'Taman Cattleya', 'Taman Marga Satwa Ragunan', 'Taman Mini Indonesia Indah', 'Taman Suropati', 'Tribeca Park', 'Twin House']
 
@@ -59,38 +59,13 @@ def create_user():
 @app.route('/api/v1/search', methods=['GET', 'POST'])
 def search():
     home_schema = PlacesSchema(many=True, only=("id", "name", 'link'))
-    if request.method == 'POST':
-        image = request.files["images"] 
-
-        basepath = os.path.dirname(__file__)
-        basepath = os.path.dirname(__file__)
-        file_path = os.path.join(basepath, 'uploads', secure_filename(image.filename))
-        image.save(file_path)
-        
-        img = keras.preprocessing.image.load_img(file_path, target_size=(180, 180))
-        x = keras.preprocessing.image.img_to_array(img)
-        x = tf.expand_dims(x, 0)
-        x = x/255.0
-
-        predictions = model.predict(x)
-        score = tf.nn.softmax(predictions[0])
-
-        result = Places.query.filter(Places.name.ilike(class_names[np.argmax(score)])).paginate(per_page=15, page=int(page))
-        response = home_schema.dump(result)
-    else:
-        query = request.args.get('q')
-        search = "%{}%".format(query)
-        result = Places.query.filter(Places.name.ilike(search)).paginate(per_page=15, page=int(page))
-        response = home_schema.dump(result)
-
     page = request.args.get("page")
 
     if page is None:
         page = 1
-
     next = int(page)+1
     prev = int(page)-1
-    
+
     pagination = {}
     pagination['self'] = '/api/v1/home?page=' + str(page)
     pagination['next'] = '/api/v1/home?page=' + str(next)
@@ -99,13 +74,43 @@ def search():
         pagination['prev'] = None
     else:
         pagination['prev'] = '/api/v1/home?page=' + str(prev)
+    
+    if request.method == 'POST':
+        image = request.files["image"]
 
-    return jsonify({
-        'status': 'success',
-        'message': 'Successfully fetched',
-        'code': 200,
-        'data': response
-    })
+        basepath = os.path.dirname(__file__)
+        file_path = os.path.join(basepath, 'uploads', secure_filename(image.filename))
+        image.save(file_path)
+
+        img = keras.preprocessing.image.load_img(file_path, target_size=(100, 100))
+        img_array = keras.preprocessing.image.img_to_array(img)
+        img_array = tf.expand_dims(img_array, 0)
+
+        predictions = model.predict(img_array)
+        score = tf.nn.softmax(predictions[0])
+        print(image.filename)
+        print(score)
+        print(class_names[np.argmax(score)])
+
+        result = Places.query.filter(Places.name.ilike(class_names[np.argmax(score)])).paginate(per_page=15, page=int(page))
+        response = home_schema.dump(result.items)
+        return jsonify({
+            'status': 'success',
+            'message': 'Successfully fetched',
+            'code': 200,
+            'data': response
+        })
+    else:
+        query = request.args.get('q')
+        search = "%{}%".format(query)
+        result = Places.query.filter(Places.name.ilike(search)).paginate(per_page=15, page=int(page))
+        response = home_schema.dump(result.items)
+        return jsonify({
+            'status': 'success',
+            'message': 'Successfully fetched',
+            'code': 200,
+            'data': response
+        })
 
 @app.route('/api/v1/home', methods=['GET'])
 def home():
@@ -124,7 +129,6 @@ def home():
     pagination = {}
     pagination['self'] = '/api/v1/home?page=' + str(page)
     pagination['next'] = '/api/v1/home?page=' + str(next)
-
     if prev == 0:
         pagination['prev'] = None
     else:
@@ -159,9 +163,9 @@ def place(id):
 
     response["top_review"] = top_review
     response["is_favorite"] = check
-    response["review_link"] = '/api/v1/place/' + str(id) + '/feedback'
-    response["create_review_link"] = '/api/v1/place/' + str(id) + '/feedback'
-    response["add_to_wishlist"] = '/api/v1/place/' + str(id) + '/wishlist/add'
+    response["review_link"] = '/api/v1/place/' + str(id) + '/review'
+    response["create_review_link"] = '/api/v1/place/' + str(id) + '/review'
+    response["add_to_favorite"] = '/api/v1/place/' + str(id) + '/wishlist/add'
 
     return jsonify({
         'status': 'success',
@@ -235,7 +239,7 @@ def add_wishlist(place_id):
             'message': 'Delete Success'
         })
 
-@app.route('/api/v1/feedback', methods=['GET'])
+@app.route('/api/v1/review', methods=['GET'])
 def feedback():
     key = request.args.get('key')
     data = jwt.decode(key, app.config['SECRET_KEY'])
@@ -251,7 +255,7 @@ def feedback():
 
     feedback_schema = FeedbackSchema(many=True, exclude=['user_id', 'place_id'])
     result = Feedback.query.filter_by(user_id=user.id).paginate(per_page=15, page=int(page))
-    response = feedback_schema.dump(result)
+    response = feedback_schema.dump(result.items)
 
     pagination = {}
     pagination['self'] = '/api/v1/home?page=' + str(page)
@@ -266,11 +270,11 @@ def feedback():
         'status': 'success',
         'message': 'Successfully fetched',
         'code': 200,
-        'data': response.append,
+        'data': response,
         'links': pagination
     })
 
-@app.route('/api/v1/place/<int:id>/feedback', methods=['GET'])
+@app.route('/api/v1/place/<int:id>/review', methods=['GET'])
 def get_feedback(id):
     feedback_schema = FeedbackSchema(many=True, exclude=['user_id', 'place_id', 'place_detail'])
     result = Feedback.query.filter_by(place_id=id).all()
@@ -283,7 +287,7 @@ def get_feedback(id):
         'data': response
     })
 
-@app.route('/api/v1/place/<int:place_id>/feedback/create', methods=['POST'])
+@app.route('/api/v1/place/<int:place_id>/review/create', methods=['POST'])
 def create_feedback(place_id):
     key = request.args.get('key')
     data = jwt.decode(key, app.config['SECRET_KEY'])
