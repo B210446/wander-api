@@ -1,48 +1,41 @@
-from flask import Flask, jsonify, request
-from models import db, ma, User, Places, Wishlist, Feedback, PlacesSchema, WishlistSchema, FeedbackSchema
-import tensorflow as tf
-from tensorflow import keras
-from sqlalchemy.sql import func
+from flask import Flask, request
+import requests
+from models import db, User, Wishlist, Feedback, mappingPlaces, mappingPlace, mappingWishlist, mappingUserReview, mappingPlaceReview
 from datetime import date
 import jwt
 import os
 import numpy as np
+import tensorflow as tf
+from tensorflow import keras
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 
-ENV = 'dev'
-
-if ENV == 'dev':
-    app.debug = True
-    app.config['SQLALCHEMY_DATABASE_URI'] = '[LOCAL DATABASE URL]'
-else:
-    app.debug = False
-    app.config['SQLALCHEMY_DATABASE_URI'] = '[REMOTE DATABASE URL]'
-
-app.config['SECRET_KEY'] = '[SECRET KEY]'
 app.config['JSON_SORT_KEYS'] = False
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:123456@localhost/places'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SECRET_KEY'] = 'thisissecretkey'
+
+API_KEY = "AIzaSyDBmn1-rBVvIQU6gKIDpvqfCRJut_uVgeA"
 
 db.init_app(app)
-ma.init_app(app)
 
 # with app.app_context():
 #     db.create_all()
 
-model_path = "[ML SAVED MODEL PATH]"
+model_path = "./saved_model"
 model = tf.keras.models.load_model(model_path)
 class_names = ['Allianz Ecopark', 'Ancol', 'Galangan Kapal Voc', 'Hutan Kota Srengseng', 'Hutan Kota Tanah Tingal', 'Jembatan Gantung Kota Intan', 'Jimbaran Outdoor Lounge', 'Kepulauan Seribu', 'Monumen Nasional', 'Museum Bahari', 'Museum Bank Indonesia', 'Museum Bank Mandiri', 'Museum Fatahillah', 'Museum Joang 45', 'Museum Nasional', 'Museum Naskah Proklamasi', 'Museum Satria Mandala', 'Museum Seni Rupa Dan Keramik', 'Museum Taman Prasasti', 'Museum Tekstil', 'Museum Tengah Kebun', 'Museum Wayang', 'Pelabuhan Sunda Kelapa', 'Setu Babakan', 'Studio Alam Tvri', 'Syahbandar Tower', 'Taman Cattleya', 'Taman Marga Satwa Ragunan', 'Taman Mini Indonesia Indah', 'Taman Suropati', 'Tribeca Park', 'Twin House']
 
 @app.route('/', methods=['GET'])
 def homepage():
-    return jsonify({
+    return {
         'status': 'success',
         'message': 'Wander API',
         'code': 200
-    })
+    }
 
-@app.route('/user', methods=['POST'])
+@app.route('/api/v1/user/create', methods=['POST'])
 def create_user():
     user = request.args.get('user')
     token = jwt.encode({'username' : user}, app.config['SECRET_KEY'])
@@ -51,31 +44,92 @@ def create_user():
     db.session.add(new_user)
     db.session.commit()
     
-    return jsonify({
+    return {
         'message' : 'New user created!',
         'key' : token.decode('UTF-8')
-    })
+    }
 
-@app.route('/api/v1/search', methods=['GET', 'POST'])
-def search():
-    home_schema = PlacesSchema(many=True, only=("id", "name", 'link'))
-    page = request.args.get("page")
+@app.route("/api/v1/home")
+def home():
+    query = {
+        "region": "id",
+        "query": "wisata jakarta",
+        "type": "tourist_attraction",
+        "key": API_KEY
+    }
 
-    if page is None:
-        page = 1
-    next = int(page)+1
-    prev = int(page)-1
+    req = requests.get("https://maps.googleapis.com/maps/api/place/textsearch/json", params=query)
+    resp = req.json()
 
-    pagination = {}
-    pagination['self'] = '/api/v1/home?page=' + str(page)
-    pagination['next'] = '/api/v1/home?page=' + str(next)
+    if (resp["status"] == "OK"):
 
-    if prev == 0:
-        pagination['prev'] = None
+        data = mappingPlaces(resp)
+        next_page_token = None
+        
+        if "next_page_token" in resp:
+            next_page_token = resp["next_page_token"]
+
+        return {
+        "status": "success",
+        "message": "Successfully fetch data",
+        "code": 201,
+        "data": data,
+        "links": {
+            "next_page_token": next_page_token
+        }
+        }
     else:
-        pagination['prev'] = '/api/v1/home?page=' + str(prev)
-    
-    if request.method == 'POST':
+        return {
+        "status": "failure",
+        "message": "Request Failed",
+        "code": 422,
+        "data": None,
+        "links": {
+            "next_page_token": None
+        }
+        }
+
+@app.route("/api/v1/search", methods=['GET', 'POST'])
+def places_search():
+    if request.method == 'GET':
+        q = request.args.get('q')
+        query = {
+            "region": "id",
+            "query": q,
+            "type": "tourist_attraction",
+            "key": API_KEY
+        }
+        req = requests.get("https://maps.googleapis.com/maps/api/place/textsearch/json", params=query)
+        resp = req.json()
+        
+        if (resp["status"] == "OK"):
+
+            data = mappingPlaces(resp)
+            next_page_token = None
+
+            if "next_page_token" in resp:
+                next_page_token = resp["next_page_token"]
+
+            return {
+            "status": "success",
+            "message": "Successfully fetch data",
+            "code": 201,
+            "data": data,
+            "links": {
+                "next_page_token": next_page_token
+                }
+            }
+        else:
+            return {
+            "status": "failure",
+            "message": "Request Failed",
+            "code": 422,
+            "data": None,
+            "links": {
+                "next_page_token": None
+                }
+            }
+    else:
         image = request.files["image"]
 
         basepath = os.path.dirname(__file__)
@@ -88,156 +142,190 @@ def search():
 
         predictions = model.predict(img_array)
         score = tf.nn.softmax(predictions[0])
-        print(image.filename)
-        print(score)
-        print(class_names[np.argmax(score)])
+        
+        query = {
+            "region": "id",
+            "query": class_names[np.argmax(score)],
+            "type": "tourist_attraction",
+            "key": API_KEY
+        }
 
-        result = Places.query.filter(Places.name.ilike(class_names[np.argmax(score)])).paginate(per_page=15, page=int(page))
-        response = home_schema.dump(result.items)
-        return jsonify({
-            'status': 'success',
-            'message': 'Successfully fetched',
-            'code': 200,
-            'data': response
-        })
+        req = requests.get("https://maps.googleapis.com/maps/api/place/textsearch/json", params=query)
+        resp = req.json()
+        
+        data = mappingPlaces(resp)
+        next_page_token = None
+
+        if "next_page_token" in resp:
+            next_page_token = resp["next_page_token"]
+
+        return {
+            "status": "success",
+            "message": "Successfully fetch data",
+            "code": 201,
+            "data": data,
+            "links": {
+                "next_page_token": next_page_token
+                }
+            }
+
+@app.route("/api/v1/place", methods=['GET'])
+def get_google_place():
+    key = request.args.get('key')
+    data = jwt.decode(key, app.config['SECRET_KEY'])
+    user = User.query.filter_by(username=data['username']).first()
+    
+    place_id = request.args.get('id')
+    query = {
+        "place_id": place_id,
+        "key": API_KEY
+    }
+
+    req = requests.get("https://maps.googleapis.com/maps/api/place/details/json", params=query)
+    resp = req.json()
+
+    if (resp["status"] == "OK"):
+
+        data = mappingPlace(resp, user)
+        return {
+        "status": "success",
+        "message": "Successfully fetch data",
+        "code": 201,
+        "data": data,
+        "links": {
+            "self": None,
+            "next": None,
+            "prev": None,
+            }
+        }
     else:
-        query = request.args.get('q')
-        search = "%{}%".format(query)
-        result = Places.query.filter(Places.name.ilike(search)).paginate(per_page=15, page=int(page))
-        response = home_schema.dump(result.items)
-        return jsonify({
-            'status': 'success',
-            'message': 'Successfully fetched',
-            'code': 200,
-            'data': response
-        })
+        return {
+        "status": "failure",
+        "message": "Request Failed",
+        "code": 422,
+        "data": None,
+        "links": {
+            "self": None,
+            "next": None,
+            "prev": None
+            }
+        }
 
-@app.route('/api/v1/home', methods=['GET'])
-def home():
-    page = request.args.get("page")
-
-    if page is None:
-        page = 1
-
-    next = int(page)+1
-    prev = int(page)-1
-
-    home_schema = PlacesSchema(many=True, only=("id", "name", "image_path", 'link'))
-    result = Places.query.paginate(per_page=15, page=int(page))
-    response = home_schema.dump(result.items)
-  
-    pagination = {}
-    pagination['self'] = '/api/v1/home?page=' + str(page)
-    pagination['next'] = '/api/v1/home?page=' + str(next)
-    if prev == 0:
-        pagination['prev'] = None
-    else:
-        pagination['prev'] = '/api/v1/home?page=' + str(prev)
-
-    return ({
-        'status': 'success',
-        'message': 'Successfully fetched',
-        'code': 200,
-        'data': response,
-        'links': pagination
-    })
-
-@app.route('/api/v1/place/<int:id>', methods=['GET'])
-def place(id):
+@app.route('/api/v1/wishlist/add', methods=['POST'])
+def add_wishlist():
     key = request.args.get('key')
     data = jwt.decode(key, app.config['SECRET_KEY'])
     user = User.query.filter_by(username=data['username']).first()
 
-    place_schema = PlacesSchema(exclude=['link'])
-    result = Places.query.get(id)
-    response = place_schema.dump(result)
+    id = request.args.get('id')
 
-    feedback_schema = FeedbackSchema(many=True, exclude=['place_id', 'user_id'])
-    review = db.session.query(Feedback).filter_by(place_id=id).limit(5)
-    top_review = feedback_schema.dump(review) 
+    query = {
+        "place_id": id,
+        "key": API_KEY
+    }
 
-    if db.session.query(Wishlist).filter_by(user_id=user.id, place_id=id).all() == []:
-        check = False
+    req = requests.get("https://maps.googleapis.com/maps/api/place/details/json", params=query)
+    resp = req.json()
+
+    name = resp["result"]["name"]
+
+    check = db.session.query(Wishlist).filter_by(user_id=user.id, place_id=id).all()
+    
+    if  check == []:
+        new_wishlist = Wishlist(user_id=user.id, place_id=id, place_name=name)
+        db.session.add(new_wishlist)
+        db.session.commit()
+        return {
+            'status': 'success',
+            'message': 'Successfully Added',
+            'code': 201
+        }
     else:
-        check = True
+        delete = db.session.query(Wishlist).filter_by(user_id=user.id, place_id=id).first()
+        db.session.delete(delete)
+        db.session.commit()
 
-    response["top_review"] = top_review
-    response["is_favorite"] = check
-    response["review_link"] = '/api/v1/place/' + str(id) + '/review'
-    response["create_review_link"] = '/api/v1/place/' + str(id) + '/review'
-    response["add_to_favorite"] = '/api/v1/place/' + str(id) + '/wishlist/add'
+        return {
+            'status': 'success',
+            'message': 'Successfully Deleted',
+            'code': 200
+        }
 
-    return jsonify({
+@app.route('/api/v1/wishlist', methods=['GET'])
+def wishlist():
+    key = request.args.get('key')
+    data = jwt.decode(key, app.config['SECRET_KEY'])
+    
+    user = User.query.filter_by(username=data['username']).first()
+
+    result = Wishlist.query.filter_by(user_id=user.id).all()
+
+    response = []
+
+    for items in result:
+            query = {
+                "place_id": items.place_id,
+                "key": API_KEY
+            }
+            req = requests.get("https://maps.googleapis.com/maps/api/place/details/json", params=query)
+            resp = req.json()
+
+            response.append(mappingWishlist(resp))
+    
+    return {
         'status': 'success',
         'message': 'Successfully fetched',
         'code': 200,
         'data': response
-    })
+        # 'links': pagination
+    }
 
-@app.route('/api/v1/wishlist')
-def wishlist():
+@app.route('/api/v1/place/review/create', methods=['POST'])
+def create_feedback():
     key = request.args.get('key')
+    if key is None:
+        return {
+            "status": "failure",
+            "message": "Token Not Found",
+            "code": 400,
+        }
     data = jwt.decode(key, app.config['SECRET_KEY'])
+    
+    id = request.args.get('id')
     user = User.query.filter_by(username=data['username']).first()
 
-    page = request.args.get("page")
+    query = {
+        "place_id": id,
+        "key": API_KEY
+    }
 
-    if page is None:
-        page = 1
+    req = requests.get("https://maps.googleapis.com/maps/api/place/details/json", params=query)
+    resp = req.json()
 
-    next = int(page)+1
-    prev = int(page)-1
+    name = resp["result"]["name"]
 
-    wishlist_schema = WishlistSchema(many=True, only=('id', 'place_detail', 'link'))
-    result = Wishlist.query.filter_by(user_id=user.id).paginate(per_page=15, page=int(page))
-    response = wishlist_schema.dump(result.items)
+    check = db.session.query(Feedback).filter_by(user_id=user.id, place_id=id).all()
 
-    pagination = {}
-    pagination['self'] = '/api/v1/home?page=' + str(page)
-    pagination['next'] = '/api/v1/home?page=' + str(next)
-
-    if prev == 0:
-        pagination['prev'] = None
-    else:
-        pagination['prev'] = '/api/v1/home?page=' + str(prev)
-
-    return jsonify({
-        'status': 'success',
-        'message': 'Successfully fetched',
-        'code': 200,
-        'data': response,
-        'links': pagination
-    })
-
-@app.route('/api/v1/place/<int:place_id>/wishlist/add', methods=['POST'])
-def add_wishlist(place_id):
-    key = request.args.get('key')
-    data = jwt.decode(key, app.config['SECRET_KEY'])
-    user = User.query.filter_by(username=data['username']).first()
-
-    new_wishlist_schema = WishlistSchema(only=('user_id', 'place_id'))
-    check = db.session.query(Wishlist).filter_by(user_id=user.id, place_id=place_id).all()
     if  check == []:
-        new_wishlist = Wishlist(user_id=user.id, place_id=place_id)
-        db.session.add(new_wishlist)
+        rate = request.args.get('rate')
+        desc = request.args.get('desc')
+        hari = date.today()
+        new_feedback = Feedback(user_id=user.id, place_id=id, rating=rate, desc=desc, date=hari, place_name=name)
+        db.session.add(new_feedback)
         db.session.commit()
-        response = new_wishlist_schema.dump(new_wishlist)
 
-        return jsonify({
+        return {
             'status': 'success',
-            'message': 'Successfully fetched',
-            'code': 201,
-            'data': response
-        })
-    else:
-        delete = db.session.query(Wishlist).filter_by(user_id=user.id, place_id=place_id).first()
-        db.session.delete(delete)
-        db.session.commit()
-
-        return jsonify({
-            'status': 200,
-            'message': 'Delete Success'
-        })
+            'message': 'Successfully added',
+            'code': 201
+            # 'data': response
+        }
+    else:        
+        return {
+            'status': 'User already has review',
+            'message': 'Not added',
+            'code': 200
+        }
 
 @app.route('/api/v1/review', methods=['GET'])
 def feedback():
@@ -245,80 +333,57 @@ def feedback():
     data = jwt.decode(key, app.config['SECRET_KEY'])
     user = User.query.filter_by(username=data['username']).first()
 
-    page = request.args.get("page")
+    result = Feedback.query.filter_by(user_id=user.id).all()
 
-    if page is None:
-        page = 1
+    response = []
 
-    next = int(page)+1
-    prev = int(page)-1
+    for items in result:
+        response.append(mappingUserReview(items))
 
-    feedback_schema = FeedbackSchema(many=True, exclude=['user_id', 'place_id'])
-    result = Feedback.query.filter_by(user_id=user.id).paginate(per_page=15, page=int(page))
-    response = feedback_schema.dump(result.items)
-
-    pagination = {}
-    pagination['self'] = '/api/v1/home?page=' + str(page)
-    pagination['next'] = '/api/v1/home?page=' + str(next)
-
-    if prev == 0:
-        pagination['prev'] = None
-    else:
-        pagination['prev'] = '/api/v1/home?page=' + str(prev)
-
-    return jsonify({
-        'status': 'success',
-        'message': 'Successfully fetched',
-        'code': 200,
-        'data': response,
-        'links': pagination
-    })
-
-@app.route('/api/v1/place/<int:id>/review', methods=['GET'])
-def get_feedback(id):
-    feedback_schema = FeedbackSchema(many=True, exclude=['user_id', 'place_id', 'place_detail'])
-    result = Feedback.query.filter_by(place_id=id).all()
-    response = feedback_schema.dump(result)
-    
-    return jsonify({
+    return {
         'status': 'success',
         'message': 'Successfully fetched',
         'code': 200,
         'data': response
-    })
+        # 'links': pagination
+    }
 
-@app.route('/api/v1/place/<int:place_id>/review/create', methods=['POST'])
-def create_feedback(place_id):
-    key = request.args.get('key')
-    data = jwt.decode(key, app.config['SECRET_KEY'])
-    user = User.query.filter_by(username=data['username']).first()
+@app.route('/api/v1/place/review', methods=['GET'])
+def get_feedback():
+    place_id = request.args.get('id')
+    query = {
+        "place_id": place_id,
+        "key": API_KEY
+    }
 
-    feedback_schema = FeedbackSchema(exclude=['id', 'place_id', 'user_id'])
-    check = db.session.query(Feedback).filter_by(user_id=user.id, place_id=place_id).all()
+    req = requests.get("https://maps.googleapis.com/maps/api/place/details/json", params=query)
+    resp = req.json()
 
-    if  check == []:
-        rate = request.args.get('rate')
-        desc = request.args.get('desc')
-        hari = date.today()
-        new_feedback = Feedback(user_id=user.id, place_id=place_id, rating=rate, desc=desc, date=hari)
-        db.session.add(new_feedback)
-        update_rating = db.session.query(func.avg(Feedback.rating).label('rating')).filter(Feedback.place_id==place_id).scalar()
-        db.session.query(Places).filter(Places.id==place_id).update({Places.rating:update_rating})
-        db.session.commit()
-        response = feedback_schema.dump(new_feedback)
-
-        return jsonify({
-            'status': 'success',
-            'message': 'Successfully added',
-            'code': 201,
-            'data': response
-        })
-    else:        
-        return jsonify({
-            'status': 'User already has review',
-            'message': 'Not added',
-            'code': 200
-        })
+    if (resp["status"] == "OK"):
+        data = mappingPlaceReview(resp)
+        return {
+        "status": "success",
+        "message": "Successfully fetch data",
+        "code": 201,
+        "data": data,
+        "links": {
+            "self": None,
+            "next": None,
+            "prev": None,
+            }
+        }
+    else:
+        return {
+        "status": "failure",
+        "message": "Request Failed",
+        "code": 422,
+        "data": None,
+        "links": {
+            "self": None,
+            "next": None,
+            "prev": None
+            }
+        }
 
 if __name__ == '__main__':
     app.run()
