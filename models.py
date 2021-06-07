@@ -1,6 +1,6 @@
 from flask_sqlalchemy import SQLAlchemy
 import requests
-from sqlalchemy.sql.expression import func, null
+from sqlalchemy.sql.expression import null
 
 db = SQLAlchemy()
 
@@ -45,13 +45,6 @@ def mappingPlaces(resp: dict):
         if "formatted_address" in place:
             location = place["formatted_address"]
 
-        wander_rating = db.session.query(func.avg(Feedback.rating).label('rating')).filter(Feedback.place_id==place["place_id"]).scalar()
-
-        if wander_rating is None:
-            rating = place["rating"]
-        else:
-            rating = (wander_rating+place["rating"])/2
-
         data = {
         "id": place["place_id"],
         "name": place["name"],
@@ -60,7 +53,7 @@ def mappingPlaces(resp: dict):
         "lat": place["geometry"]["location"]["lat"],
         "lng": place["geometry"]["location"]["lng"],
         "is_favorite":  False,
-        "rating": rating,
+        "rating": place["rating"],
         "open_link": 'http://localhost:5000/api/v1/place?id=' + place["place_id"]
         }
 
@@ -80,19 +73,6 @@ def mappingPlace(resp: dict,user):
         "content_description": place["name"]
         }
         photos.append(image)
-
-    wander_review = Feedback.query.filter_by(place_id=place["place_id"]).all()
-
-    for item in wander_review:
-        name_query = User.query.filter_by(id=wander_review[0].user_id).first()
-        review = {
-        "username": name_query.username,
-        "place_id": item.place_id,
-        "rating": item.rating,
-        "desc": item.desc,
-        "date": item.date
-        }
-        reviews.append(review)
     
     for item in place["reviews"]:
         review = {
@@ -120,13 +100,6 @@ def mappingPlace(resp: dict,user):
     else:
         fav = True
 
-    wander_rating = db.session.query(func.avg(Feedback.rating).label('rating')).filter(Feedback.place_id==place["place_id"]).scalar()
-
-    if wander_rating is None:
-        rating = place["rating"]
-    else:
-        rating = (wander_rating+place["rating"])/2
-
     if place["website"] is None:
         website = null
     else:
@@ -144,7 +117,7 @@ def mappingPlace(resp: dict,user):
     "add_to_favorite": 'http://localhost:5000/api/v1/wishlist/add?id=' + place["place_id"],
     "review_link": "http://localhost:5000/api/v1/place/review?id=" + place["place_id"],
     "is_favorite":  fav,
-    "rating": rating,
+    "rating": place["rating"],
     "top_reviews": reviews    
     }
 
@@ -185,25 +158,9 @@ def mappingUserReview(items):
 
     return data
 
-def mappingPlaceReview(resp: dict, wander_review):
+def mappingPlaceReview(resp: dict):
     place = resp["result"]
-    wander_review = Feedback.query.filter_by(place_id=place["place_id"]).all()
-
     reviews = []
-
-    i = 0
-    for item in wander_review:
-        name_query = User.query.filter_by(id=wander_review[i].user_id).first()
-                
-        review = {
-        "username": name_query.username,
-        "name": wander_review[i].place_name,
-        "rating": wander_review[i].rating,
-        "desc": wander_review[i].desc,
-        "date": wander_review[i].date
-        }
-        reviews.append(review)
-        i += 1
 
     for item in place["reviews"]: 
         review = {

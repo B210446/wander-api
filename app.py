@@ -93,42 +93,81 @@ def home():
 def places_search():
     if request.method == 'GET':
         q = request.args.get('q')
-        query = {
-            "region": "id",
-            "query": q,
-            "type": "tourist_attraction",
-            "key": API_KEY
-        }
-        req = requests.get("https://maps.googleapis.com/maps/api/place/textsearch/json", params=query)
-        resp = req.json()
-        
-        if (resp["status"] == "OK"):
-
-            data = mappingPlaces(resp)
-            next_page_token = None
-
-            if "next_page_token" in resp:
-                next_page_token = resp["next_page_token"]
-
-            return {
-            "status": "success",
-            "message": "Successfully fetch data",
-            "code": 201,
-            "data": data,
-            "links": {
-                "next_page_token": next_page_token
-                }
+        location = request.args.get('location')
+        if location is not None :
+            query = {
+                "location": location,
+                "type": "tourist_attraction",
+                "rankby": "distance",
+                "key": API_KEY
             }
+            req = requests.get("https://maps.googleapis.com/maps/api/place/nearbysearch/json", params=query)
+            resp = req.json()
+
+            if (resp["status"] == "OK"):
+
+                data = mappingPlaces(resp)
+                next_page_token = None
+                
+                if "next_page_token" in resp:
+                    next_page_token = resp["next_page_token"]
+
+                return {
+                "status": "success",
+                "message": "Successfully fetch data",
+                "code": 201,
+                "data": data,
+                "links": {
+                    "next_page_token": next_page_token
+                }
+                }
+            else:
+                return {
+                "status": "failure",
+                "message": "Request Failed",
+                "code": 422,
+                "data": None,
+                "links": {
+                    "next_page_token": None
+                }
+                }
         else:
-            return {
-            "status": "failure",
-            "message": "Request Failed",
-            "code": 422,
-            "data": None,
-            "links": {
-                "next_page_token": None
-                }
+            query = {
+                "region": "id",
+                "query": q,
+                "type": "tourist_attraction",
+                "key": API_KEY
             }
+            req = requests.get("https://maps.googleapis.com/maps/api/place/textsearch/json", params=query)
+            resp = req.json()
+            
+            if (resp["status"] == "OK"):
+
+                data = mappingPlaces(resp)
+                next_page_token = None
+
+                if "next_page_token" in resp:
+                    next_page_token = resp["next_page_token"]
+
+                return {
+                "status": "success",
+                "message": "Successfully fetch data",
+                "code": 201,
+                "data": data,
+                "links": {
+                    "next_page_token": next_page_token
+                    }
+                }
+            else:
+                return {
+                "status": "failure",
+                "message": "Request Failed",
+                "code": 422,
+                "data": None,
+                "links": {
+                    "next_page_token": None
+                    }
+                }
     else:
         image = request.files["image"]
 
